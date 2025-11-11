@@ -4,7 +4,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QVBoxLayout, QHBoxLayout,
     QLabel, QSpinBox, QDoubleSpinBox, QComboBox,
-    QGroupBox, QFormLayout, QScrollArea
+    QGroupBox, QFormLayout, QScrollArea, QCheckBox
 )
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
@@ -41,34 +41,44 @@ class TitlePage(QWidget):
         v.addStretch()
 
 
+# --- замените существующий TheoryPage на этот ---
 class TheoryPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        from theory.content import SECTIONS
+        from theory.render import latex_to_pixmap
+
         layout = QVBoxLayout(self)
-        text = QLabel(
-            "Теория по теме\n\n"
-            "Моделируется движение N упругих частиц в прямоугольной области и их столкновения с крупным объектом "
-            "(сфера/цилиндр/плоскость) и стенками. Применяется простая упругая модель обмена импульсом.\n\n"
-            "В приведённых единицах (k_B = 1) температура оценивается как "
-            "T_r = m · <v^2> / 3, кинетическая энергия E_k = 0.5 · m · Σ v_i^2.\n\n"
-            "Единицы на осях: t (s_r), длина (m_r), скорость (m_r/s_r), энергия (E_r), температура (T_r).\n\n"
-            "Рекомендуется переключать режимы скорости для обзора и для сбора статистики."
-        )
-        text.setWordWrap(True); text.setStyleSheet("font-size: 14px;")
-        layout.addWidget(text)
+
+        head = QLabel("Теория по теме")
+        head.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(head)
 
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
         container = QWidget(); v = QVBoxLayout(container)
-        assets_theory = os.path.join(get_assets_dir(), "theory")
-        if os.path.isdir(assets_theory):
-            imgs = sorted([f for f in os.listdir(assets_theory) if f.lower().endswith((".png", ".jpg", ".jpeg"))])
-            if imgs:
-                for name in imgs:
-                    lbl = QLabel(); pm = QPixmap(os.path.join(assets_theory, name))
-                    lbl.setPixmap(pm); lbl.setScaledContents(True); lbl.setMinimumHeight(300); v.addWidget(lbl)
-        else:
-            v.addWidget(QLabel("Положите сканы теории в папку assets/theory (PNG/JPG), они появятся здесь."))
-        v.addStretch(1); scroll.setWidget(container); layout.addWidget(scroll)
+
+        for sec in SECTIONS:
+            t = QLabel(sec["title"])
+            t.setStyleSheet("font-size: 18px; font-weight: 600; margin-top: 8px;")
+            v.addWidget(t)
+
+            if sec.get("bullets"):
+                for b in sec["bullets"]:
+                    lb = QLabel("• " + b); lb.setWordWrap(True)
+                    lb.setStyleSheet("font-size: 14px;")
+                    v.addWidget(lb)
+
+            if sec.get("formulas"):
+                for tex, cap in sec["formulas"]:
+                    pm = latex_to_pixmap(tex)
+                    img = QLabel(); img.setPixmap(pm); img.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                    cap_w = QLabel(cap); cap_w.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                    cap_w.setStyleSheet("color:#555; font-size:12px; margin-bottom:6px;")
+                    v.addWidget(img); v.addWidget(cap_w)
+
+        v.addStretch(1)
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
         self.btn_back = QPushButton("Назад"); self.btn_back.clicked.connect(lambda: parent.setCurrentIndex(0))
         layout.addWidget(self.btn_back, alignment=Qt.AlignmentFlag.AlignRight)
@@ -126,19 +136,19 @@ class PresentationPage(QWidget):
         self.t_hist = []; self.E_hist = []; self.T_hist = []; self.Vb_hist = []
         self.max_hist_len = 2000
 
-        # throttle поверхности
+        # throttle поверхности (как раньше)
         self._frame_id = 0
-        self._surface_refresh_every = 4  # перерисовка поверхности раз в N кадров
-        self._surface_kind = None        # 'plane' | 'surface'
-        self.surface = None              # handle для plot_surface
-        self.surface_poly = None         # handle для Poly3DCollection
+        self._surface_refresh_every = 4
+        self._surface_kind = None
+        self.surface = None
+        self.surface_poly = None
 
         self._setup_3d_axes(); self._setup_2d_axes(); self._init_3d_artists(); self._redraw_3d()
 
-    # ── controls ─────────────────────────────────────────────────────────────
     def _build_controls_panel(self):
         panel = QGroupBox("Параметры и управление"); form = QFormLayout(panel)
 
+        # базовые
         self.sb_N = QSpinBox(); self.sb_N.setRange(1, 20000); self.sb_N.setValue(self.model.N)
         self.dsb_dt = QDoubleSpinBox(); self.dsb_dt.setDecimals(5); self.dsb_dt.setRange(1e-5, 0.1); self.dsb_dt.setSingleStep(0.001); self.dsb_dt.setValue(self.model.dt)
         self.dsb_speed = QDoubleSpinBox(); self.dsb_speed.setRange(0.0, 1000.0); self.dsb_speed.setSingleStep(1.0); self.dsb_speed.setValue(self.model.init_speed)
@@ -150,10 +160,26 @@ class PresentationPage(QWidget):
         self.sb_big_res = QSpinBox(); self.sb_big_res.setRange(6, 128); self.sb_big_res.setValue(self.model.big_resolution)
         self.sb_steps = QSpinBox(); self.sb_steps.setRange(1, 1000); self.sb_steps.setValue(1)
 
-        from PyQt6.QtWidgets import QPushButton
-        self.btn_start = QPushButton("Старт"); self.btn_pause = QPushButton("Пауза"); self.btn_reset = QPushButton("Стоп/Сброс"); self.btn_apply = QPushButton("Применить параметры")
-        self.btn_start.clicked.connect(self.start); self.btn_pause.clicked.connect(self.pause); self.btn_reset.clicked.connect(self.reset); self.btn_apply.clicked.connect(self.apply_params)
+        # новые контролы физики
+        self.cb_gas_coll = QCheckBox("Столкновения молекула–молекула")
+        self.cb_gas_coll.setChecked(self.model.enable_gas_collisions)
 
+        self.cb_maxwell = QCheckBox("Максвелл. инициализация")
+        self.cb_maxwell.setChecked(self.model.use_maxwell_init)
+
+        self.dsb_temp = QDoubleSpinBox(); self.dsb_temp.setRange(1e-6, 1e6); self.dsb_temp.setValue(self.model.temp_target)
+        self.dsb_temp.setSingleStep(0.5)
+
+        self.sb_E_log = QSpinBox(); self.sb_E_log.setRange(0, 100000); self.sb_E_log.setValue(self.model.energy_log_every)
+        self.sb_E_log.setToolTip("Интервал логирования энергии (шаги). 0 — выкл.")
+
+        # кнопки
+        self.btn_start = QPushButton("Старт"); self.btn_pause = QPushButton("Пауза")
+        self.btn_reset = QPushButton("Стоп/Сброс"); self.btn_apply = QPushButton("Применить параметры")
+        self.btn_start.clicked.connect(self.start); self.btn_pause.clicked.connect(self.pause)
+        self.btn_reset.clicked.connect(self.reset); self.btn_apply.clicked.connect(self.apply_params)
+
+        # разметка
         form.addRow("N (шт.)", self.sb_N)
         form.addRow("dt (s_r)", self.dsb_dt)
         form.addRow("Начальная скорость (m_r/s_r)", self.dsb_speed)
@@ -164,6 +190,10 @@ class PresentationPage(QWidget):
         form.addRow("Масса крупной (kg_r)", self.dsb_big_m)
         form.addRow("Разрешение крупной (шт.)", self.sb_big_res)
         form.addRow("Шагов/кадр", self.sb_steps)
+        form.addRow(self.cb_gas_coll)
+        form.addRow(self.cb_maxwell)
+        form.addRow("T для Максвелла (T_r)", self.dsb_temp)
+        form.addRow("Энергия: лог каждые k шагов", self.sb_E_log)
         form.addRow(self._buttons_row([self.btn_start, self.btn_pause, self.btn_reset, self.btn_apply]))
         return panel
 
@@ -286,7 +316,11 @@ class PresentationPage(QWidget):
             N=self.sb_N.value(), dt=self.dsb_dt.value(), init_speed=self.dsb_speed.value(),
             small_radius=self.dsb_small_r.value(), small_mass=self.dsb_small_m.value(),
             big_type=self.cb_big_type.currentIndex(), big_radius=self.dsb_big_r.value(),
-            big_mass=self.dsb_big_m.value(), big_resolution=self.sb_big_res.value()
+            big_mass=self.dsb_big_m.value(), big_resolution=self.sb_big_res.value(),
+            enable_gas_collisions=self.cb_gas_coll.isChecked(),
+            use_maxwell_init=self.cb_maxwell.isChecked(),
+            temp_target=self.dsb_temp.value(),
+            energy_log_every=self.sb_E_log.value()
         )
         self.reset()
 
