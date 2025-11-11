@@ -310,45 +310,34 @@ class TheoryPage(QWidget):
 
 
 class AuthorsPage(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-
-        title = QLabel("Авторы и руководитель")
-        title.setStyleSheet("font-size: 18px; font-weight: 600;")
+        title = QLabel("Авторы")
+        title.setStyleSheet("font-size: 36px; font-weight: 600;")
         layout.addWidget(title)
-
-        # Блок авторов: загрузка из assets/authors
-        grid = QHBoxLayout()
-        for slot in range(3):
-            pane = QVBoxLayout()
+        hl = QHBoxLayout()
+        for i in range(3):
+            v = QVBoxLayout()
             img = QLabel()
-            img.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            name = QLabel("Фамилия Имя\nГруппа ХХ-ХХ")
-            name.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            name.setStyleSheet("font-size: 14px;")
-            img.setPixmap(self._load_author_image(slot))
+            path = os.path.join(get_assets_dir(), "authors", f"author{i+1}.png")
+            if os.path.isfile(path):
+                img.setPixmap(QPixmap(path))
             img.setScaledContents(True)
-            img.setMinimumSize(160, 160)
-            pane.addWidget(img)
-            pane.addWidget(name)
-            grid.addLayout(pane)
-        layout.addLayout(grid)
-
-        sup = QLabel("Преподаватель–руководитель: Фамилия Имя Отчество")
-        sup.setStyleSheet("font-size: 14px;")
+            img.setMaximumSize(160, 160)
+            tag = QLabel(f"Автор {i+1}")
+            tag.setStyleSheet("font-size: 24px; font-weight: 600;")
+            tag.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            v.addWidget(img)
+            v.addWidget(tag)
+            hl.addLayout(v)
+        layout.addLayout(hl)
+        sup = QLabel("Руководитель: Имя Отчество Преподавателя")
+        sup.setStyleSheet("font-size: 36px; font-weight: 600;")
         layout.addWidget(sup)
-        layout.addStretch(1)
-
         self.btn_back = QPushButton("Назад")
         self.btn_back.clicked.connect(lambda: parent.setCurrentIndex(0))
         layout.addWidget(self.btn_back, alignment=Qt.AlignmentFlag.AlignRight)
-
-    def _load_author_image(self, idx):
-        path = os.path.join(get_assets_dir(), "authors", f"author{idx+1}.png")
-        if os.path.isfile(path):
-            return QPixmap(path)
-        return QPixmap()
 
 
 class Mpl3DCanvas(FigureCanvas):
